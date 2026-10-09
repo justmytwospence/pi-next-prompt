@@ -37,21 +37,20 @@ const hasCursor = (line: string) => line.includes(EMPTY_CURSOR) || line.includes
 
 /**
  * Put `text` as ghost text where the editor draws its cursor on an empty line: the cursor sits on
- * the first character, the rest is dim. Returns undefined when the line has no cursor.
+ * the first character, the rest is dim, with no hint (Tab or Right accepts). Returns undefined when the line has no cursor.
  */
-export function ghostLine(line: string, text: string, hint: string, width: number, dim: (s: string) => string, muted: (s: string) => string) {
+export function ghostLine(line: string, text: string, width: number, dim: (s: string) => string) {
   if (text === "") return undefined;
-  const tail = hint ? `  ${muted(hint)}` : "";
   let body: string;
   const soft = line.indexOf(EMPTY_CURSOR);
   if (soft !== -1) {
     const [first, ...rest] = [...text];
-    body = `${line.slice(0, soft)}\x1b[7m${first}\x1b[0m${dim(rest.join(""))}${tail}`;
+    body = `${line.slice(0, soft)}\x1b[7m${first}\x1b[0m${dim(rest.join(""))}`;
   } else {
     const hard = line.indexOf(CURSOR_MARKER);
     if (hard === -1) return undefined;
     // The terminal's own cursor lands on the first character.
-    body = `${line.slice(0, hard + CURSOR_MARKER.length)}${dim(text)}${tail}`;
+    body = `${line.slice(0, hard + CURSOR_MARKER.length)}${dim(text)}`;
   }
   const rightPad = /^ */.exec(line)![0].length;
   const clipped = truncateToWidth(body, Math.max(1, width - rightPad));
@@ -164,7 +163,7 @@ export default function nextPrompt(pi: ExtensionAPI) {
   };
 
   /** Draw the suggestion inside the focused editor by wrapping its render. False if that is not possible. */
-  const ghost = (target: ExtensionUIContext, hint: string) => {
+  const ghost = (target: ExtensionUIContext) => {
     const tui = grabTui(target);
     const editor = (tui as { getFocusedComponent?: () => unknown } | undefined)?.getFocusedComponent?.() as Partial<Renderable> | null | undefined;
     if (!tui || !editor || typeof editor.render !== "function" || typeof editor.getText !== "function") return false;
@@ -179,7 +178,7 @@ export default function nextPrompt(pi: ExtensionAPI) {
       const lines = render.call(this, w);
       if (shown === undefined || this.getText() !== "") return lines;
       const i = lines.findIndex(hasCursor);
-      const line = i === -1 ? undefined : ghostLine(lines[i]!, shown, hint, w, (s) => theme.fg("dim", s), (s) => theme.fg("muted", s));
+      const line = i === -1 ? undefined : ghostLine(lines[i]!, shown, w, (s) => theme.fg("dim", s));
       if (line === undefined) return lines;
       const out = lines.slice();
       out[i] = line;
@@ -202,7 +201,7 @@ export default function nextPrompt(pi: ExtensionAPI) {
     unpatch();
     shown = text;
     const hint = `${keyLabel(config.acceptKeys[0] ?? "tab")} to accept`;
-    if (ghost(ui, hint)) return;
+    if (ghost(ui)) return;
     ui.setWidget(
       WIDGET_KEY,
       (_tui, theme) => ({

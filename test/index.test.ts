@@ -100,12 +100,12 @@ function withTui(ui: any, editor: any) {
 
 test("ghostLine puts the suggestion at the cursor, dim, and keeps the width", () => {
   const line = ` ${CUR}${" ".repeat(38)}`;
-  const out = ghostLine(line, "Run it", "Tab to accept", 40, (s) => `<${s}>`, plain)!;
-  expect(out).toBe(` \x1b[7mR\x1b[0m<un it>  Tab to accept${" ".repeat(16)}`);
-  expect(visibleWidth(ghostLine(` ${CUR}${" ".repeat(8)}`, "A long suggestion", "Tab to accept", 10, plain, plain)!)).toBe(10);
-  const hw = ghostLine(` \x1b_pi:c\x07${" ".repeat(39)}`, "Run it", "", 40, (s) => `<${s}>`, plain)!;
+  const out = ghostLine(line, "Run it", 40, (s) => `<${s}>`)!;
+  expect(out).toBe(` \x1b[7mR\x1b[0m<un it>${" ".repeat(31)}`);
+  expect(visibleWidth(ghostLine(` ${CUR}${" ".repeat(8)}`, "A long suggestion", 10, plain)!)).toBe(10);
+  const hw = ghostLine(` \x1b_pi:c\x07${" ".repeat(39)}`, "Run it", 40, (s) => `<${s}>`)!;
   expect(hw).toBe(` \x1b_pi:c\x07<Run it>${" ".repeat(31)}`);
-  expect(ghostLine("no cursor here", "x", "", 20, plain, plain)).toBeUndefined();
+  expect(ghostLine("no cursor here", "x", 20, plain)).toBeUndefined();
 });
 
 test("the suggestion is drawn inside the empty editor, not below it", async () => {
@@ -114,12 +114,13 @@ test("the suggestion is drawn inside the empty editor, not below it", async () =
   const tui = withTui(ui, editor);
   await run("rename foo", ["Done.\n<next>Run the tests</next>"]);
   expect(ui.widgets.size).toBe(0);
-  expect(editor.render(40)[1]).toContain("\x1b[7mR\x1b[0mun the tests  Tab to accept");
+  expect(editor.render(40)[1]).toContain("\x1b[7mR\x1b[0mun the tests ")
+  expect(editor.render(40)[1]).not.toContain("Tab to accept");
   expect(tui.renders).toBeGreaterThan(0);
   ui.press("\t");
   expect(ui.editorText).toBe("Run the tests");
   expect(Object.hasOwn(editor, "render")).toBe(true);
-  expect(editor.render(40)[1]).not.toContain("Tab to accept");
+  expect(editor.render(40)[1]).not.toContain("Run the tests ");
 });
 
 test("typing hides the ghost text and restores the editor", async () => {
