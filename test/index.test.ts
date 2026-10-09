@@ -103,6 +103,8 @@ test("ghostLine puts the suggestion at the cursor, dim, and keeps the width", ()
   const out = ghostLine(line, "Run it", "Tab to accept", 40, (s) => `<${s}>`, plain)!;
   expect(out).toBe(` \x1b[7mR\x1b[0m<un it>  Tab to accept${" ".repeat(16)}`);
   expect(visibleWidth(ghostLine(` ${CUR}${" ".repeat(8)}`, "A long suggestion", "Tab to accept", 10, plain, plain)!)).toBe(10);
+  const hw = ghostLine(` \x1b_pi:c\x07${" ".repeat(39)}`, "Run it", "", 40, (s) => `<${s}>`, plain)!;
+  expect(hw).toBe(` \x1b_pi:c\x07<Run it>${" ".repeat(31)}`);
   expect(ghostLine("no cursor here", "x", "", 20, plain, plain)).toBeUndefined();
 });
 

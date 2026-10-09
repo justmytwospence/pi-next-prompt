@@ -28,22 +28,34 @@ export const DEFAULT_CONFIG: NextPromptConfig = {
 export const SECTION = "next_prompt";
 const WIDGET_KEY = "next-prompt";
 const PROBE_KEY = "next-prompt-probe";
-/** The editor's fake cursor on an empty line: a reverse-video space. */
+/** The editor's software cursor on an empty line: a reverse-video space. */
 const EMPTY_CURSOR = "\x1b[7m \x1b[0m";
+/** Where the hardware cursor goes; editors that use it (pi-vim) drop the software cursor. */
+const CURSOR_MARKER = "\x1b_pi:c\x07";
+
+const hasCursor = (line: string) => line.includes(EMPTY_CURSOR) || line.includes(CURSOR_MARKER);
 
 /**
  * Put `text` as ghost text where the editor draws its cursor on an empty line: the cursor sits on
- * the first character, the rest is dim. Returns undefined when the line has no empty-line cursor.
+ * the first character, the rest is dim. Returns undefined when the line has no cursor.
  */
 export function ghostLine(line: string, text: string, hint: string, width: number, dim: (s: string) => string, muted: (s: string) => string) {
-  const at = line.indexOf(EMPTY_CURSOR);
-  if (at === -1 || text === "") return undefined;
-  const prefix = line.slice(0, at);
+  if (text === "") return undefined;
+  const tail = hint ? `  ${muted(hint)}` : "";
+  let body: string;
+  const soft = line.indexOf(EMPTY_CURSOR);
+  if (soft !== -1) {
+    const [first, ...rest] = [...text];
+    body = `${line.slice(0, soft)}\x1b[7m${first}\x1b[0m${dim(rest.join(""))}${tail}`;
+  } else {
+    const hard = line.indexOf(CURSOR_MARKER);
+    if (hard === -1) return undefined;
+    // The terminal's own cursor lands on the first character.
+    body = `${line.slice(0, hard + CURSOR_MARKER.length)}${dim(text)}${tail}`;
+  }
   const rightPad = /^ */.exec(line)![0].length;
-  const [first, ...rest] = [...text];
-  const ghost = `\x1b[7m${first}\x1b[0m${dim(rest.join(""))}${hint ? `  ${muted(hint)}` : ""}`;
-  const body = truncateToWidth(prefix + ghost, Math.max(1, width - rightPad));
-  return body + " ".repeat(Math.max(0, width - visibleWidth(body)));
+  const clipped = truncateToWidth(body, Math.max(1, width - rightPad));
+  return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
 }
 
 type Renderable = { render(width: number): string[]; getText(): string };
@@ -159,14 +171,14 @@ export default function nextPrompt(pi: ExtensionAPI) {
     if (editor.getText() !== "") return false;
     const render = editor.render;
     const width = tui.terminal?.columns ?? 80;
-    // An editor that does not draw the usual empty-line cursor (say, a vim normal mode) gets the line below instead.
-    if (!render.call(editor, width).some((line) => line.includes(EMPTY_CURSOR))) return false;
+    // An editor that draws no cursor at all gets the line below instead.
+    if (!render.call(editor, width).some(hasCursor)) return false;
     const theme = target.theme;
     const own = Object.prototype.hasOwnProperty.call(editor, "render");
     editor.render = function (this: Renderable, w: number) {
       const lines = render.call(this, w);
       if (shown === undefined || this.getText() !== "") return lines;
-      const i = lines.findIndex((line) => line.includes(EMPTY_CURSOR));
+      const i = lines.findIndex(hasCursor);
       const line = i === -1 ? undefined : ghostLine(lines[i]!, shown, hint, w, (s) => theme.fg("dim", s), (s) => theme.fg("muted", s));
       if (line === undefined) return lines;
       const out = lines.slice();

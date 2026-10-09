@@ -31,8 +31,8 @@ It only appears when there is one obvious next step. Most turns show nothing.
   session clears it.
 
 The ghost text is drawn by wrapping the focused editor's `render` while a suggestion is shown, so it
-works with any editor component that draws pi's usual empty-line cursor; one that does not (say, a
-vim normal mode) gets a dim line under the editor instead. `Tab`/`Right` are taken only while a
+works with any editor component that draws pi's cursor (the software block or, like pi-vim, the
+hardware cursor); one that draws neither gets a dim line under the editor instead. `Tab`/`Right` are taken only while a
 suggestion is shown and the editor is empty; otherwise they reach the editor as usual.
 
 ## Commands
