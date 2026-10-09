@@ -1,6 +1,6 @@
 // pi-next-prompt: after a run, suggests the prompt you would most likely send next, the way Claude
-// Code does: dim ghost text inside the empty editor, Tab (or Right) fills it in, typing dismisses
-// it. The main model writes the suggestion itself, in a last `<next>…</next>` line it
+// Code does: dim ghost text inside the empty editor, Tab (or Right) fills it in, typing hides it
+// and clearing the editor again brings it back. The main model writes the suggestion itself, in a last `<next>…</next>` line it
 // adds only when one next step is obvious (a short standing prompt section asks for it). The line
 // is stripped before the message is stored, so it never reaches the transcript or later context;
 // Jev vets it before it is shown and fails open.
@@ -128,6 +128,8 @@ export default function nextPrompt(pi: ExtensionAPI) {
   let userPrompt = "";
   let pending: Pending | undefined;
   let outcome: string | undefined;
+  /** The suggestion on offer until the next prompt is sent; `shown` is set while it is on screen. */
+  let offered: string | undefined;
   let shown: string | undefined;
   let generation = 0;
   let lastVerdict = "";
@@ -144,11 +146,17 @@ export default function nextPrompt(pi: ExtensionAPI) {
     tui.requestRender();
   };
 
-  const hide = () => {
+  /** Take the suggestion off screen but keep it on offer, for when the editor is empty again. */
+  const conceal = () => {
     if (shown === undefined) return;
     shown = undefined;
     unpatch();
     ui?.setWidget(WIDGET_KEY, undefined);
+  };
+
+  const hide = () => {
+    offered = undefined;
+    conceal();
   };
 
   /** Pi hands widget factories the TUI; a throwaway widget is the only way to reach it. */
@@ -199,6 +207,7 @@ export default function nextPrompt(pi: ExtensionAPI) {
   const show = (text: string) => {
     if (!ui) return;
     unpatch();
+    offered = text;
     shown = text;
     const hint = `${keyLabel(config.acceptKeys[0] ?? "tab")} to accept`;
     if (ghost(ui)) return;
@@ -213,17 +222,20 @@ export default function nextPrompt(pi: ExtensionAPI) {
   };
 
   const onKey = (data: string) => {
-    if (shown === undefined || !ui || isKeyRelease(data)) return undefined;
+    if (offered === undefined || !ui || isKeyRelease(data)) return undefined;
     const accept = config.acceptKeys.some((key) => matchesKey(data, key as KeyId));
-    if (accept && ui.getEditorText() === "") {
+    if (accept && shown !== undefined && ui.getEditorText() === "") {
       const text = shown;
       hide();
       ui.setEditorText(text);
       return { consume: true };
     }
-    // Typing dismisses: once the key has reached the editor, hide if it left text there.
+    // Once the key has reached the editor: hide while it holds text, show again once it is empty.
     setTimeout(() => {
-      if (shown !== undefined && ui && ui.getEditorText() !== "") hide();
+      if (offered === undefined || !ui) return;
+      const empty = ui.getEditorText() === "";
+      if (!empty) conceal();
+      else if (shown === undefined) show(offered);
     }, 0);
     return undefined;
   };

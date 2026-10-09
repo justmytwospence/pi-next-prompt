@@ -2,7 +2,7 @@
 
 A [pi](https://pi.dev) extension that suggests the prompt you would most likely send next, like
 Claude Code's prompt suggestions: after a run, it appears as dim ghost text inside the empty
-editor, with no hint; `Tab` (or `Right`) fills it in (it is not sent), and typing dismisses it.
+editor, with no hint; `Tab` (or `Right`) fills it in (it is not sent), typing hides it, and deleting what you typed brings it back until you send a prompt.
 
 ```
 ────────────────────────────────────────────────────────────

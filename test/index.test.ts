@@ -135,6 +135,34 @@ test("typing hides the ghost text and restores the editor", async () => {
   expect(editor.render(40)[1]).not.toContain("Run the tests");
 });
 
+test("deleting everything typed brings the ghost text back", async () => {
+  const { run, ui } = await setup();
+  const editor = fakeEditor(ui);
+  withTui(ui, editor);
+  await run("rename foo", ["Done.\n<next>Run the tests</next>"]);
+  ui.press("x", "x");
+  await new Promise((r) => setTimeout(r, 0));
+  expect(editor.render(40)[1]).not.toContain("Run the tests");
+  ui.editorText = "";
+  ui.press("\x7f");
+  await new Promise((r) => setTimeout(r, 0));
+  expect(editor.render(40)[1]).toContain("\x1b[7mR\x1b[0mun the tests ");
+  ui.press(TAB);
+  expect(ui.editorText).toBe("Run the tests");
+});
+
+test("sending a prompt drops the suggestion for good", async () => {
+  const { h, run, ui, ctx } = await setup();
+  await run("go", ["Done.\n<next>Run the tests</next>"]);
+  ui.press("a", "a");
+  await new Promise((r) => setTimeout(r, 0));
+  await h.emit("input", { type: "input", text: "a" }, ctx);
+  ui.editorText = "";
+  ui.press("\x7f");
+  await new Promise((r) => setTimeout(r, 0));
+  expect(ui.widgets.size).toBe(0);
+});
+
 test("no tag, nothing shown and no Jev call", async () => {
   const { run, ui, jev } = await setup();
   const { replaced } = await run("what is 2+2", ["4"]);
@@ -191,6 +219,10 @@ test("typing dismisses; Tab with text in the editor is not ours", async () => {
   expect(ui.widgets.size).toBe(0);
   expect(ui.press(TAB)).toBe(false);
   expect(ui.editorText).toBe("a");
+  ui.editorText = "";
+  ui.press("\x7f");
+  await new Promise((r) => setTimeout(r, 5));
+  expect(ui.widgetLines("next-prompt")).toEqual(["→ Run the tests  Tab to accept"]);
 });
 
 test("key releases and non-typing keys keep the suggestion", async () => {
