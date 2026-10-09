@@ -1,7 +1,8 @@
 import { mkdtempSync } from "node:fs";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
-import nextPrompt, { DEFAULT_CONFIG, SECTION, processAssistant, vet } from "../src/index.ts";
+import nextPrompt, { DEFAULT_CONFIG, SECTION, ghostLine, processAssistant, vet } from "../src/index.ts";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { INSTRUCTION } from "../src/tag.ts";
 import { fakeJev, harness } from "./harness.ts";
 
@@ -69,6 +70,66 @@ test("a tagged answer is stripped, vetted and shown below the editor", async () 
   expect(jev.calls[0]!.state).toEqual({ last_user_prompt: "rename foo to bar in a.ts", assistant_text_tail: "Renamed.", suggestion: "Run the tests" });
   expect(ui.widgets.get("next-prompt").opts).toEqual({ placement: "belowEditor" });
   expect(ui.widgetLines("next-prompt")).toEqual(["→ Run the tests  Tab to accept"]);
+});
+
+const CUR = "\x1b[7m \x1b[0m";
+const plain = (s: string) => s;
+
+/** A fake editor drawn like pi's: borders around one padded content line with the cursor. */
+function fakeEditor(ui: any) {
+  return {
+    getText: () => ui.editorText,
+    render(width: number) {
+      const body = ui.editorText === "" ? ` ${CUR}` : ` ${ui.editorText}${CUR}`;
+      return ["-".repeat(width), body + " ".repeat(Math.max(0, width - body.length + CUR.length - 1)), "-".repeat(width)];
+    },
+  };
+}
+
+/** Give the harness a TUI whose focused component is `editor`, handed to widget factories as pi does. */
+function withTui(ui: any, editor: any) {
+  const tui = { terminal: { columns: 40 }, getFocusedComponent: () => editor, renders: 0, requestRender: () => tui.renders++ };
+  const setWidget = ui.setWidget;
+  ui.theme = { fg: (_c: string, s: string) => s };
+  ui.setWidget = (key: string, content: any, opts?: any) => {
+    if (typeof content === "function") content(tui, ui.theme);
+    setWidget(key, content, opts);
+  };
+  return tui;
+}
+
+test("ghostLine puts the suggestion at the cursor, dim, and keeps the width", () => {
+  const line = ` ${CUR}${" ".repeat(38)}`;
+  const out = ghostLine(line, "Run it", "Tab to accept", 40, (s) => `<${s}>`, plain)!;
+  expect(out).toBe(` \x1b[7mR\x1b[0m<un it>  Tab to accept${" ".repeat(16)}`);
+  expect(visibleWidth(ghostLine(` ${CUR}${" ".repeat(8)}`, "A long suggestion", "Tab to accept", 10, plain, plain)!)).toBe(10);
+  expect(ghostLine("no cursor here", "x", "", 20, plain, plain)).toBeUndefined();
+});
+
+test("the suggestion is drawn inside the empty editor, not below it", async () => {
+  const { run, ui } = await setup();
+  const editor = fakeEditor(ui);
+  const tui = withTui(ui, editor);
+  await run("rename foo", ["Done.\n<next>Run the tests</next>"]);
+  expect(ui.widgets.size).toBe(0);
+  expect(editor.render(40)[1]).toContain("\x1b[7mR\x1b[0mun the tests  Tab to accept");
+  expect(tui.renders).toBeGreaterThan(0);
+  ui.press("\t");
+  expect(ui.editorText).toBe("Run the tests");
+  expect(Object.hasOwn(editor, "render")).toBe(true);
+  expect(editor.render(40)[1]).not.toContain("Tab to accept");
+});
+
+test("typing hides the ghost text and restores the editor", async () => {
+  const { run, ui } = await setup();
+  const editor = fakeEditor(ui);
+  const original = editor.render;
+  withTui(ui, editor);
+  await run("rename foo", ["Done.\n<next>Run the tests</next>"]);
+  ui.press("x", "x");
+  await new Promise((r) => setTimeout(r, 0));
+  expect(editor.render).toBe(original);
+  expect(editor.render(40)[1]).not.toContain("Run the tests");
 });
 
 test("no tag, nothing shown and no Jev call", async () => {

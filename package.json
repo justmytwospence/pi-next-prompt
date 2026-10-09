@@ -1,7 +1,7 @@
 {
   "name": "@justmytwospence/pi-next-prompt",
   "version": "0.1.0",
-  "description": "Suggests your next prompt after a run, Claude Code style: a dim line under the editor, Tab to accept. Only when there is one obvious next step.",
+  "description": "Suggests your next prompt after a run, Claude Code style: ghost text in the empty editor, Tab to accept. Only when there is one obvious next step.",
   "type": "module",
   "license": "MIT",
   "private": true,

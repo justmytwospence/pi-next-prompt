@@ -1,11 +1,13 @@
 # pi-next-prompt
 
 A [pi](https://pi.dev) extension that suggests the prompt you would most likely send next, like
-Claude Code's prompt suggestions: after a run, a dim line under the editor shows it, `Tab` (or
-`Right`) on an empty editor fills it in (it is not sent), and typing dismisses it.
+Claude Code's prompt suggestions: after a run, it appears as dim ghost text inside the empty
+editor, `Tab` (or `Right`) fills it in (it is not sent), and typing dismisses it.
 
 ```
-→ Do step 2: add an assert for neg in test.js  Tab to accept
+────────────────────────────────────────────────────────────
+ Do step 2: add an assert for neg in test.js  Tab to accept
+────────────────────────────────────────────────────────────
 ```
 
 It only appears when there is one obvious next step. Most turns show nothing.
@@ -28,9 +30,10 @@ It only appears when there is one obvious next step. Most turns show nothing.
   print mode and subagents get no instruction. A new prompt, a new run, compaction, or switching
   session clears it.
 
-The line sits below the editor rather than inside it, so it works with any editor component
-(pi-vim's included). `Tab`/`Right` are taken only while a suggestion is shown and the editor is
-empty; otherwise they reach the editor as usual.
+The ghost text is drawn by wrapping the focused editor's `render` while a suggestion is shown, so it
+works with any editor component that draws pi's usual empty-line cursor; one that does not (say, a
+vim normal mode) gets a dim line under the editor instead. `Tab`/`Right` are taken only while a
+suggestion is shown and the editor is empty; otherwise they reach the editor as usual.
 
 ## Commands
 

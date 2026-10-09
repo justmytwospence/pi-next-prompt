@@ -1,11 +1,11 @@
 // pi-next-prompt: after a run, suggests the prompt you would most likely send next, the way Claude
-// Code does: a dim line under the editor, Tab (or Right) on an empty editor fills it in, typing
-// dismisses it. The main model writes the suggestion itself, in a last `<next>…</next>` line it
+// Code does: dim ghost text inside the empty editor, Tab (or Right) fills it in, typing dismisses
+// it. The main model writes the suggestion itself, in a last `<next>…</next>` line it
 // adds only when one next step is obvious (a short standing prompt section asks for it). The line
 // is stripped before the message is stored, so it never reaches the transcript or later context;
 // Jev vets it before it is shown and fails open.
 import type { ExtensionAPI, ExtensionContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { type KeyId, isKeyRelease, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { type KeyId, type TUI, isKeyRelease, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { loadConfig } from "./config.ts";
 import { type ClassifierQuestion, type JevConfig, askJev, bool } from "./jev.ts";
 import { INSTRUCTION, extractNext } from "./tag.ts";
@@ -27,6 +27,26 @@ export const DEFAULT_CONFIG: NextPromptConfig = {
 
 export const SECTION = "next_prompt";
 const WIDGET_KEY = "next-prompt";
+const PROBE_KEY = "next-prompt-probe";
+/** The editor's fake cursor on an empty line: a reverse-video space. */
+const EMPTY_CURSOR = "\x1b[7m \x1b[0m";
+
+/**
+ * Put `text` as ghost text where the editor draws its cursor on an empty line: the cursor sits on
+ * the first character, the rest is dim. Returns undefined when the line has no empty-line cursor.
+ */
+export function ghostLine(line: string, text: string, hint: string, width: number, dim: (s: string) => string, muted: (s: string) => string) {
+  const at = line.indexOf(EMPTY_CURSOR);
+  if (at === -1 || text === "") return undefined;
+  const prefix = line.slice(0, at);
+  const rightPad = /^ */.exec(line)![0].length;
+  const [first, ...rest] = [...text];
+  const ghost = `\x1b[7m${first}\x1b[0m${dim(rest.join(""))}${hint ? `  ${muted(hint)}` : ""}`;
+  const body = truncateToWidth(prefix + ghost, Math.max(1, width - rightPad));
+  return body + " ".repeat(Math.max(0, width - visibleWidth(body)));
+}
+
+type Renderable = { render(width: number): string[]; getText(): string };
 
 export const QUESTIONS: Record<string, ClassifierQuestion> = {
   useful: {
@@ -100,13 +120,62 @@ export default function nextPrompt(pi: ExtensionAPI) {
   let shown: string | undefined;
   let generation = 0;
   let lastVerdict = "";
+  let patched: { editor: Renderable; render: Renderable["render"]; own: boolean; tui: TUI } | undefined;
 
   const active = () => sessionOn && config.enabled;
+
+  const unpatch = () => {
+    if (!patched) return;
+    const { editor, render, own, tui } = patched;
+    patched = undefined;
+    if (own) editor.render = render;
+    else delete (editor as Partial<Renderable>).render;
+    tui.requestRender();
+  };
 
   const hide = () => {
     if (shown === undefined) return;
     shown = undefined;
+    unpatch();
     ui?.setWidget(WIDGET_KEY, undefined);
+  };
+
+  /** Pi hands widget factories the TUI; a throwaway widget is the only way to reach it. */
+  const grabTui = (target: ExtensionUIContext) => {
+    let tui: TUI | undefined;
+    target.setWidget(PROBE_KEY, (t) => {
+      tui = t;
+      return { render: () => [], invalidate: () => {} };
+    }, { placement: "belowEditor" });
+    target.setWidget(PROBE_KEY, undefined);
+    return tui as TUI | undefined;
+  };
+
+  /** Draw the suggestion inside the focused editor by wrapping its render. False if that is not possible. */
+  const ghost = (target: ExtensionUIContext, hint: string) => {
+    const tui = grabTui(target);
+    const editor = (tui as { getFocusedComponent?: () => unknown } | undefined)?.getFocusedComponent?.() as Partial<Renderable> | null | undefined;
+    if (!tui || !editor || typeof editor.render !== "function" || typeof editor.getText !== "function") return false;
+    if (editor.getText() !== "") return false;
+    const render = editor.render;
+    const width = tui.terminal?.columns ?? 80;
+    // An editor that does not draw the usual empty-line cursor (say, a vim normal mode) gets the line below instead.
+    if (!render.call(editor, width).some((line) => line.includes(EMPTY_CURSOR))) return false;
+    const theme = target.theme;
+    const own = Object.prototype.hasOwnProperty.call(editor, "render");
+    editor.render = function (this: Renderable, w: number) {
+      const lines = render.call(this, w);
+      if (shown === undefined || this.getText() !== "") return lines;
+      const i = lines.findIndex((line) => line.includes(EMPTY_CURSOR));
+      const line = i === -1 ? undefined : ghostLine(lines[i]!, shown, hint, w, (s) => theme.fg("dim", s), (s) => theme.fg("muted", s));
+      if (line === undefined) return lines;
+      const out = lines.slice();
+      out[i] = line;
+      return out;
+    };
+    patched = { editor: editor as Renderable, render, own, tui };
+    tui.requestRender();
+    return true;
   };
 
   const reset = () => {
@@ -118,8 +187,10 @@ export default function nextPrompt(pi: ExtensionAPI) {
 
   const show = (text: string) => {
     if (!ui) return;
+    unpatch();
     shown = text;
     const hint = `${keyLabel(config.acceptKeys[0] ?? "tab")} to accept`;
+    if (ghost(ui, hint)) return;
     ui.setWidget(
       WIDGET_KEY,
       (_tui, theme) => ({
